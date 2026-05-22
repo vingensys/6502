@@ -19,6 +19,7 @@ Generated cartridges:
 | `uart_echo.bin` | Polls UART status, reads UART input, echoes it back, and loops. |
 | `store_2a.bin` | Stores `$2A` at zero-page address `$0005`, then executes two NOPs. |
 | `breakpoint_test.bin` | Writes `A`, executes a NOP at `$8005`, then writes `B` and loops. |
+| `echo_upper.bin` | Interactive UART cartridge that prints a prompt and echoes lowercase letters as uppercase. |
 
 They can be run directly or from the monitor:
 

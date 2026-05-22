@@ -816,7 +816,8 @@ void interface_display_uart_terminal(void) {
     werase(win);
     wattron(win, color_attr(PAIR_TITLE, A_BOLD));
     mvwprintw(win, 0, 0,
-              " UART TERMINAL | F1/Esc: debugger | RX: %u | STATUS: %02X ",
+              " UART TERMINAL | F1/Esc: debugger | Ctrl+R reset | "
+              "Ctrl+X quit | RX: %u | STATUS: %02X ",
               (unsigned int)uart_get_rx_count(), status);
     wattroff(win, color_attr(PAIR_TITLE, A_BOLD));
 

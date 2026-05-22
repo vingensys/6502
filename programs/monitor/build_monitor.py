@@ -18,6 +18,10 @@ ZP_BP_HI = 0x0B
 ZP_BP_BYTE = 0x0C
 ZP_RET_LO = 0x0D
 ZP_RET_HI = 0x0E
+ZP_LAST_DUMP_LO = 0x0F
+ZP_LAST_DUMP_HI = 0x10
+ZP_END_LO = 0x11
+ZP_END_HI = 0x12
 CMD = 0x0200
 UART_DATA = 0xD010
 UART_STATUS = 0xD011
@@ -113,6 +117,9 @@ class Asm:
     def bne(self, label):
         self.b(0xD0)
         self.rel_fix(label)
+    def bcc(self, label):
+        self.b(0x90)
+        self.rel_fix(label)
     def bmi(self, label):
         self.b(0x30)
         self.rel_fix(label)
@@ -120,6 +127,12 @@ class Asm:
         skip = f"bne_abs_skip_{self._branch_id}"
         self._branch_id += 1
         self.beq(skip)
+        self.jmp_abs(label)
+        self.label(skip)
+    def beq_abs(self, label):
+        skip = f"beq_abs_skip_{self._branch_id}"
+        self._branch_id += 1
+        self.bne(skip)
         self.jmp_abs(label)
         self.label(skip)
     def jump_if_a_eq(self, value, label):
@@ -155,6 +168,8 @@ a.ldx_imm(0xFF)
 a.txs()
 a.lda_imm(0)
 a.sta_zp(ZP_BP_ACTIVE)
+a.sta_zp(ZP_LAST_DUMP_LO)
+a.sta_zp(ZP_LAST_DUMP_HI)
 a.jsr("print_banner")
 
 a.label("main")
@@ -204,6 +219,8 @@ a.jump_if_a_eq(ord("R"), "cmd_restart_or_legacy_run")
 a.jump_if_a_eq(ord("r"), "cmd_restart_or_legacy_run")
 a.jump_if_a_eq(ord("M"), "cmd_dump")
 a.jump_if_a_eq(ord("m"), "cmd_dump")
+a.jump_if_a_eq(ord("N"), "cmd_next_dump")
+a.jump_if_a_eq(ord("n"), "cmd_next_dump")
 a.jump_if_a_eq(ord("W"), "cmd_write")
 a.jump_if_a_eq(ord("w"), "cmd_write")
 a.jump_if_a_eq(ord("B"), "cmd_break_set")
@@ -242,6 +259,38 @@ a.label("cmd_dump")
 a.jsr("parse_addr")
 a.cmp_imm(0)
 a.bne_abs("cmd_err")
+a.lda_abs(CMD + 5)
+a.cmp_imm(ord("."))
+a.beq("cmd_dump_range")
+a.jsr("dump_line")
+a.jsr("remember_next_dump")
+a.rts()
+
+a.label("cmd_dump_range")
+a.jsr("parse_range_end")
+a.cmp_imm(0)
+a.bne_abs("cmd_err")
+a.label("dump_range_loop")
+a.jsr("dump_line")
+a.jsr("dump_line_reaches_end")
+a.cmp_imm(0)
+a.bne("dump_range_done")
+a.jsr("advance_dump_ptr")
+a.jmp_abs("dump_range_loop")
+a.label("dump_range_done")
+a.jsr("remember_next_dump")
+a.rts()
+
+a.label("cmd_next_dump")
+a.lda_zp(ZP_LAST_DUMP_LO)
+a.sta_zp(ZP_PTR)
+a.lda_zp(ZP_LAST_DUMP_HI)
+a.sta_zp(ZP_PTR_HI)
+a.jsr("dump_line")
+a.jsr("remember_next_dump")
+a.rts()
+
+a.label("dump_line")
 a.jsr("print_addr")
 a.lda_imm(ord(":"))
 a.jsr("putc")
@@ -259,6 +308,48 @@ a.bne("dump_loop")
 a.jsr("newline")
 a.rts()
 
+a.label("advance_dump_ptr")
+a.clc()
+a.lda_zp(ZP_PTR)
+a.adc_imm(16)
+a.sta_zp(ZP_PTR)
+a.lda_zp(ZP_PTR_HI)
+a.adc_imm(0)
+a.sta_zp(ZP_PTR_HI)
+a.rts()
+
+a.label("remember_next_dump")
+a.clc()
+a.lda_zp(ZP_PTR)
+a.adc_imm(16)
+a.sta_zp(ZP_LAST_DUMP_LO)
+a.lda_zp(ZP_PTR_HI)
+a.adc_imm(0)
+a.sta_zp(ZP_LAST_DUMP_HI)
+a.rts()
+
+a.label("dump_line_reaches_end")
+a.clc()
+a.lda_zp(ZP_PTR)
+a.adc_imm(15)
+a.sta_zp(ZP_TMP)
+a.lda_zp(ZP_PTR_HI)
+a.adc_imm(0)
+a.sta_zp(ZP_VALUE)
+a.lda_zp(ZP_VALUE)
+a.cmp_zp(ZP_END_HI)
+a.bcc("dump_line_not_done")
+a.bne("dump_line_done")
+a.lda_zp(ZP_TMP)
+a.cmp_zp(ZP_END_LO)
+a.bcc("dump_line_not_done")
+a.label("dump_line_done")
+a.lda_imm(1)
+a.rts()
+a.label("dump_line_not_done")
+a.lda_imm(0)
+a.rts()
+
 a.label("cmd_write")
 a.jsr("parse_addr")
 a.cmp_imm(0)
@@ -269,12 +360,14 @@ a.bne_abs("cmd_err")
 a.ldy_imm(0)
 a.lda_zp(ZP_VALUE)
 a.sta_izy(ZP_PTR)
-a.lda_imm_lo("ok")
-a.sta_zp(ZP_STR)
-a.lda_imm_hi("ok")
-a.sta_zp(ZP_STR + 1)
-a.jsr("puts")
-a.rts()
+a.jsr("print_addr")
+a.lda_imm(ord("="))
+a.jsr("putc")
+a.lda_zp(ZP_VALUE)
+a.jsr("print_hex_byte")
+a.lda_imm(ord(" "))
+a.jsr("putc")
+a.jmp_abs("cmd_ok")
 
 a.label("cmd_break_set")
 a.jsr("parse_addr")
@@ -400,6 +493,23 @@ for offset, dest in ((1, ZP_PTR_HI), (3, ZP_PTR)):
     a.lda_abs(CMD + offset)
     a.jsr("hex_nibble")
     a.cmp_imm(0xFF)
+    a.beq_abs("parse_bad")
+    a.asl_a(); a.asl_a(); a.asl_a(); a.asl_a()
+    a.sta_zp(dest)
+    a.lda_abs(CMD + offset + 1)
+    a.jsr("hex_nibble")
+    a.cmp_imm(0xFF)
+    a.beq_abs("parse_bad")
+    a.ora_zp(dest)
+    a.sta_zp(dest)
+a.lda_imm(0)
+a.rts()
+
+a.label("parse_range_end")
+for offset, dest in ((6, ZP_END_HI), (8, ZP_END_LO)):
+    a.lda_abs(CMD + offset)
+    a.jsr("hex_nibble")
+    a.cmp_imm(0xFF)
     a.beq("parse_bad")
     a.asl_a(); a.asl_a(); a.asl_a(); a.asl_a()
     a.sta_zp(dest)
@@ -518,9 +628,20 @@ a.lda_abs(UART_DATA)
 a.rts()
 
 a.label("banner")
-a.zstr("TMS6502 MONITOR\n")
+a.zstr("TMS6502 MONITOR\nCPU: NMOS6502\nROM: E000-FFFF\nCART: 8000-BFFF\n")
 a.label("help")
-a.zstr("?:HELP Mhhhh Whhhhbb Ghhhh R Bhhhh C L\n")
+a.zstr(
+    "?        help\n"
+    "Mhhhh    dump 16 bytes from address\n"
+    "Mhhhh.kkkk dump address range\n"
+    "N        dump next 16 bytes\n"
+    "Whhhhbb  write byte\n"
+    "Ghhhh    go/run address\n"
+    "Bhhhh    set breakpoint\n"
+    "C        clear breakpoint\n"
+    "L        list breakpoint\n"
+    "R        restart monitor\n"
+)
 a.label("ok")
 a.zstr("OK\n")
 a.label("none")

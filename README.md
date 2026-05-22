@@ -61,6 +61,21 @@ Use the full explicit form:
 ./bin/emulator.out --cpu nmos6502 --rom programs/monitor/monitor.bin --cart programs/carts/ok_once.bin
 ```
 
+Choose the startup UI:
+
+```
+./bin/emulator.out --ui debugger
+./bin/emulator.out --monitor --ui terminal
+./bin/emulator.out --monitor --cart programs/carts/echo_upper.bin --ui terminal
+```
+
+`--ui debugger` is the default and starts in the register/memory debugger.
+`--ui terminal` boots directly into the full-screen UART terminal and starts
+the CPU run loop so the monitor or cartridge can interact immediately. F1 or
+Esc returns to the debugger; F2 returns to the UART terminal. `--ui headless`
+is reserved for future stdio mode and currently prints a clear not-implemented
+message.
+
 The legacy form `./bin/emulator.out your_binary_here` is still accepted as a
 cartridge shortcut. The legacy form `./bin/emulator.out --monitor myprog.bin`
 is accepted as a deprecated alias for `--monitor --cart myprog.bin`.
@@ -118,9 +133,10 @@ to `$8000`. If a kernel ROM is loaded at `$E000`, RESET is set to `$E000`.
 The emulator has two ncurses screens:
 
 -   **DEBUGGER mode**: shows CPU registers, flags, fetch/decode, trace, vectors, memory panes, and the small UART output pane. Debugger controls are active here: Enter steps, Space runs or pauses, `n` runs 10 instructions, `q` quits, `r` resets, and the memory pane navigation keys scroll/select panes.
--   **UART TERMINAL mode**: a full-screen terminal connected to the emulated UART. Press F2 from DEBUGGER mode to enter it. Press F1 or Esc to return to the debugger. In this mode, printable keys are sent to the UART RX FIFO, Enter sends newline, and Backspace sends `0x08`. A typed `q` is sent to the emulated UART instead of quitting the emulator.
+-   **UART TERMINAL mode**: a full-screen terminal connected to the emulated UART. Press F2 from DEBUGGER mode to enter it. Press F1 or Esc to return to the debugger. Ctrl+R resets the emulated CPU, and Ctrl+X quits the emulator. Ctrl+Q is also accepted if your terminal passes it through. In this mode, printable keys are sent to the UART RX FIFO, Enter sends newline, and Backspace sends `0x08`. Typed `q` and `r` are sent to the emulated UART instead of being treated as emulator controls.
 
 Entering UART TERMINAL mode starts the run loop so programs that poll the UART can respond immediately.
+You can also start there directly with `--ui terminal`.
 
 ### UART terminal test
 
@@ -180,27 +196,71 @@ Press F2 to switch to UART TERMINAL mode and start interacting with the monitor.
 
 ```
 TMS6502 MONITOR
+CPU: NMOS6502
+ROM: E000-FFFF
+CART: 8000-BFFF
 >
 ```
 
-Initial commands are compact and use hexadecimal:
+### Using the monitor
+
+Build the emulator, monitor ROM, and sample cartridges:
+
+```
+make clean && make
+programs/monitor/build_monitor.sh
+programs/carts/build_carts.sh
+```
+
+Boot the monitor with the interactive uppercase-echo cartridge:
+
+```
+./bin/emulator.out --monitor --cart programs/carts/echo_upper.bin
+```
+
+Press F2 for UART TERMINAL mode. At the monitor prompt:
 
 ```
 ?
-M0000
-W00052A
-M0000
-B8005
-L
-C
-R
+M8000
 G8000
 ```
 
-`?` prints help. `Mhhhh` dumps 16 bytes. `Whhhhbb` writes one byte.
-`Ghhhh` jumps to an address. `R` re-enters the monitor prompt without
-resetting the emulator. `Rhhhh` remains accepted as a legacy alias for
-`Ghhhh`.
+Then type:
+
+```
+hello 6502
+```
+
+Expected cartridge output:
+
+```
+HELLO 6502
+```
+
+Monitor commands use compact hexadecimal input:
+
+| Command | Behavior |
+| --- | --- |
+| `?` | Print readable help. |
+| `Mhhhh` | Dump 16 bytes from address `hhhh`. |
+| `Mhhhh.kkkk` | Dump a WOZMON-style address range, one 16-byte line at a time. |
+| `N` | Continue with the next 16-byte dump line after `Mhhhh` or `N`. |
+| `Whhhhbb` | Write byte `bb` at address `hhhh`; prints `hhhh=bb OK`. |
+| `Ghhhh` | Jump/run at address `hhhh`. |
+| `R` | Re-enter the monitor banner/prompt without resetting the emulator. |
+
+`Rhhhh` remains accepted as a legacy alias for `Ghhhh`.
+
+For example:
+
+```
+M8000
+M8000.8020
+N
+W00052A
+G8000
+```
 
 Breakpoint commands are monitor-managed and use a single BRK patch:
 

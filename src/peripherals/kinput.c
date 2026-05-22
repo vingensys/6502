@@ -108,6 +108,17 @@ static void handle_uart_terminal_key(int c) {
             interface_set_mode(DEBUGGER_MODE);
             break;
 
+        case 17:
+        case 24:
+            QUIT = 1;
+            RUNNING = 0;
+            break;
+
+        case 18:
+            cpu_reset();
+            RUNNING = 1;
+            break;
+
         case '\n':
         case KEY_ENTER:
             uart_enqueue_input('\n');
@@ -146,3 +157,5 @@ void kinput_listen(void) {
 uint8_t kinput_should_quit(void) { return QUIT; }
 
 uint8_t kinput_is_running(void) { return RUNNING; }
+
+void kinput_set_running(uint8_t running) { RUNNING = running ? 1 : 0; }

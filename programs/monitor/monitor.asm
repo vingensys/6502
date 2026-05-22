@@ -8,6 +8,7 @@
 ; Commands:
 ;   ?       help
 ;   Mhhhh   dump 16 bytes
+;   N       dump next 16 bytes
 ;   Whhhhbb write byte
 ;   Ghhhh   jump to address
 ;   R       re-enter monitor

@@ -20,6 +20,7 @@ struct emulator_config {
     const char* rom_path;
     const char* cart_path;
     uint8_t monitor_shortcut_enabled;
+    enum ui_mode start_ui_mode;
 };
 
 uint8_t DEBUG = 0;
@@ -38,7 +39,7 @@ static void draw_interface(void) {
 static void print_usage(const char* program) {
     fprintf(stderr,
             "Usage: %s [--cpu nmos6502] [--rom path] [--cart path] "
-            "[--monitor]\n"
+            "[--monitor] [--ui debugger|terminal|headless]\n"
             "       %s [legacy-cart.bin]\n"
             "       %s --monitor [legacy-cart.bin]\n",
             program, program, program);
@@ -55,6 +56,28 @@ static uint8_t parse_cpu_profile(const char* name, enum cpu_profile* profile) {
     return 1;
 }
 
+static uint8_t parse_ui_mode(const char* name, enum ui_mode* mode) {
+    if (strcmp(name, "debugger") == 0) {
+        *mode = DEBUGGER_MODE;
+        return 0;
+    }
+    if (strcmp(name, "terminal") == 0) {
+        *mode = UART_TERMINAL_MODE;
+        return 0;
+    }
+    if (strcmp(name, "headless") == 0) {
+        fprintf(stderr,
+                "[FAILED] headless UI not implemented yet; use --ui "
+                "terminal.\n");
+        return 1;
+    }
+
+    fprintf(stderr,
+            "[FAILED] Unknown UI mode '%s'. Supported: debugger, terminal.\n",
+            name);
+    return 1;
+}
+
 static uint8_t parse_args(int argc, char** argv, struct emulator_config* config) {
     int i;
 
@@ -62,6 +85,7 @@ static uint8_t parse_args(int argc, char** argv, struct emulator_config* config)
     config->rom_path = NULL;
     config->cart_path = NULL;
     config->monitor_shortcut_enabled = 0;
+    config->start_ui_mode = DEBUGGER_MODE;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--cpu") == 0) {
@@ -71,6 +95,15 @@ static uint8_t parse_args(int argc, char** argv, struct emulator_config* config)
             }
             i++;
             if (parse_cpu_profile(argv[i], &config->cpu_profile) != 0) {
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--ui") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "[FAILED] --ui requires a mode.\n");
+                return 1;
+            }
+            i++;
+            if (parse_ui_mode(argv[i], &config->start_ui_mode) != 0) {
                 return 1;
             }
         } else if (strcmp(argv[i], "--cart") == 0) {
@@ -150,10 +183,15 @@ int main(int argc, char** argv) {
         exit(1);
     }
     curs_set(0);
+    raw();
     noecho();
     keypad(stdscr, TRUE);
 
     timeout(0);
+    interface_set_mode(config.start_ui_mode);
+    if (config.start_ui_mode == UART_TERMINAL_MODE) {
+        kinput_set_running(1);
+    }
     draw_interface();
 
     do {
