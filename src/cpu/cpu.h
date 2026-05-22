@@ -35,12 +35,28 @@ struct central_processing_unit {
 
 extern struct central_processing_unit cpu;
 
+struct cpu_memory_trace {
+    uint16_t last_instruction_fetch_addr;
+    uint8_t last_opcode_byte;
+    uint8_t has_instruction_fetch;
+
+    uint16_t last_data_read_addr;
+    uint8_t last_data_read_value;
+    uint8_t has_data_read;
+
+    uint16_t last_data_write_addr;
+    uint8_t last_data_write_value;
+    uint8_t has_data_write;
+};
+
+extern struct cpu_memory_trace cpu_trace;
+
 void cpu_reset(void);
 uint8_t cpu_extract_sr(uint8_t flag);
 uint8_t cpu_mod_sr(uint8_t flag, uint8_t val);
 uint8_t cpu_fetch(uint16_t addr);
 uint8_t cpu_write(uint16_t addr, uint8_t data);
-void cpu_exec();
+void cpu_exec(void);
 void cpu_init(void);
 
 #endif

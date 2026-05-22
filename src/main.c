@@ -9,6 +9,12 @@
 
 uint8_t DEBUG = 0;
 
+static void draw_interface(void) {
+    interface_display_header();
+    interface_display_cpu();
+    interface_display_mem();
+}
+
 int main(int argc, char** argv) {
     switch (argc) {
         case 1:
@@ -27,29 +33,31 @@ int main(int argc, char** argv) {
     cpu_init();
     cpu_reset();
 
-    WINDOW* win = newwin(WIN_ROWS, WIN_COLS, 0, 0);
+    WINDOW* win;
     if ((win = initscr()) == NULL) {
         fprintf(stderr, "[FAILED] Error initialising ncurses.\n");
         exit(1);
     }
-
     curs_set(0);
     noecho();
-    box(win, 0, 0);
-    wrefresh(win);
+    keypad(stdscr, TRUE);
 
-    interface_display_header();
-    wrefresh(win);
+    timeout(0);
+    draw_interface();
 
     do {
-        interface_display_cpu();
-        interface_display_mem();
-        wrefresh(win);
+        timeout(kinput_is_running() ? 0 : -1);
+        draw_interface();
 
         kinput_listen();
+        if (kinput_is_running()) {
+            cpu_exec();
+            napms(30);
+        }
     } while (!kinput_should_quit());
 
-    delwin(win);
+    (void)win;
+    interface_shutdown();
     endwin();
 
     mem_dump();

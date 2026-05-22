@@ -256,11 +256,6 @@ static void set_flag(uint8_t flag, bool exp) {
  * @return void
  * */
 void reset(void) {
-    addr_abs = 0x8000;
-
-    cpu.pc = addr_abs;
-    debug_print("(reset) PC: 0x%X\n", cpu.pc);
-
     cpu.ac = 0;
     cpu.x = 0;
     cpu.y = 0;

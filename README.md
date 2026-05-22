@@ -48,10 +48,55 @@ The project is divided in multiple components:
 
 -   **cpu**: here you will find the CPU itself, including main methods to interact with the memory
     -   **instructions handler**: here we handle OP codes
--   **mem**: pretty simple memory implementation, each page has a dedicated array
+-   **mem**: 64KB machine address space with RAM, ROM, reserved I/O regions, and vectors
 -   **peripherals**
     -   **interface**: everyhting ncurses related
     -   **keyboard handler**: listener for key presses
+
+## Memory Map
+
+The emulator exposes a 64KB 6502 address space. CPU instruction reads and writes go through the memory bus helpers in `mem.c`.
+
+| Address range | Region |
+| --- | --- |
+| `$0000-$00FF` | Zero Page |
+| `$0100-$01FF` | Stack |
+| `$0200-$7FFF` | RAM |
+| `$8000-$BFFF` | User Program ROM / cartridge / loaded program |
+| `$C000-$CFFF` | Expansion RAM or banked region reserved for later |
+| `$D000-$D00F` | VIA 6522 #1 reserved |
+| `$D010-$D01F` | UART / ACIA 6551 reserved |
+| `$D020-$D02F` | Timer / system control reserved |
+| `$D030-$DFFF` | I/O expansion reserved |
+| `$E000-$FFFF` | Kernel ROM / monitor ROM |
+
+The vector table lives at the end of kernel ROM:
+
+| Address range | Vector |
+| --- | --- |
+| `$FFFA-$FFFB` | NMI |
+| `$FFFC-$FFFD` | RESET |
+| `$FFFE-$FFFF` | IRQ/BRK |
+
+By default, binaries are loaded at `$8000` and the RESET vector is set to `$8000`.
+
+### UART terminal test
+
+The first memory-mapped peripheral is a simple output-only UART:
+
+| Address | Register |
+| --- | --- |
+| `$D010` | UART data |
+| `$D011` | UART status, bit 0 = TX ready |
+
+Writes to `$D010` append ASCII text to the debugger's Terminal pane. Input is not implemented yet. To create a tiny program that prints `HI`:
+
+```
+printf '\xA9\x48\x8D\x10\xD0\xA9\x49\x8D\x10\xD0\xEA' > uart_hi.bin
+./bin/emulator.out uart_hi.bin
+```
+
+Step through the program or run it; the Terminal pane should show `HI`.
 
 ## Dump feature
 
@@ -74,3 +119,12 @@ Do you want to contribute? Here are some things that are still a WIP.
 ## References
 
 -   [obelisk.me.uk/6502](http://www.obelisk.me.uk/6502/)
+
+## Credits
+
+Original project by Leonardo Folgoni:
+https://github.com/f0lg0/6502
+
+This project preserves the original MIT license and attribution.
+
+Debugger UI improvements, 64KB memory bus refactor, reset vector implementation, ncurses debugger panes, tracing system, and UART terminal additions were developed with assistance from OpenAI Codex under direction of Vinod S Nair.

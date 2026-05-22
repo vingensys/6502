@@ -5,5 +5,6 @@
 
 void kinput_listen(void);
 uint8_t kinput_should_quit(void);
+uint8_t kinput_is_running(void);
 
 #endif
