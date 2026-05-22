@@ -1,12 +1,21 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <ncurses.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "cpu/cpu.h"
 #include "mem/mem.h"
 #include "peripherals/interface.h"
 #include "peripherals/kinput.h"
+#include "peripherals/uart.h"
 
 #define DEFAULT_MONITOR_ROM "programs/monitor/monitor.bin"
 #define DEFAULT_CART_ROM "example.bin"
@@ -24,6 +33,12 @@ struct emulator_config {
 };
 
 uint8_t DEBUG = 0;
+static volatile sig_atomic_t headless_should_quit = 0;
+
+static void handle_sigint(int signum) {
+    (void)signum;
+    headless_should_quit = 1;
+}
 
 static void draw_interface(void) {
     if (interface_get_mode() == UART_TERMINAL_MODE) {
@@ -66,10 +81,8 @@ static uint8_t parse_ui_mode(const char* name, enum ui_mode* mode) {
         return 0;
     }
     if (strcmp(name, "headless") == 0) {
-        fprintf(stderr,
-                "[FAILED] headless UI not implemented yet; use --ui "
-                "terminal.\n");
-        return 1;
+        *mode = HEADLESS_MODE;
+        return 0;
     }
 
     fprintf(stderr,
@@ -163,6 +176,92 @@ static void configure_cpu_profile(enum cpu_profile profile) {
     }
 }
 
+static void headless_restore_terminal(const struct termios* original_termios,
+                                      int restore_termios,
+                                      int original_stdin_flags) {
+    if (restore_termios) {
+        tcsetattr(STDIN_FILENO, TCSANOW, original_termios);
+    }
+    if (original_stdin_flags >= 0) {
+        fcntl(STDIN_FILENO, F_SETFL, original_stdin_flags);
+    }
+}
+
+static int run_headless(void) {
+    struct termios original_termios;
+    struct termios raw_termios;
+    const struct timespec loop_sleep = {0, 1000000};
+    int restore_termios = 0;
+    int original_stdin_flags;
+    size_t tx_pos = 0;
+
+    signal(SIGINT, handle_sigint);
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    original_stdin_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (original_stdin_flags >= 0) {
+        fcntl(STDIN_FILENO, F_SETFL, original_stdin_flags | O_NONBLOCK);
+    }
+
+    if (isatty(STDIN_FILENO) &&
+        tcgetattr(STDIN_FILENO, &original_termios) == 0) {
+        raw_termios = original_termios;
+        raw_termios.c_iflag &= (tcflag_t)~(BRKINT | ICRNL | INPCK | ISTRIP |
+                                           IXON);
+        /* Keep output processing enabled so '\n' still returns the cursor to
+         * column 0 on an interactive terminal. Only input needs raw-ish mode. */
+        raw_termios.c_cflag |= (CS8);
+        raw_termios.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
+        raw_termios.c_cc[VMIN] = 0;
+        raw_termios.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw_termios);
+        restore_termios = 1;
+    }
+
+    while (!headless_should_quit) {
+        uint8_t input_buf[128];
+        ssize_t bytes_read;
+        const char* tx;
+        size_t tx_len;
+
+        do {
+            bytes_read = read(STDIN_FILENO, input_buf, sizeof(input_buf));
+            if (bytes_read > 0) {
+                for (ssize_t i = 0; i < bytes_read; i++) {
+                    if (input_buf[i] == 0x03 || input_buf[i] == 0x18) {
+                        headless_should_quit = 1;
+                    } else if (input_buf[i] == 0x12) {
+                        cpu_reset();
+                    } else {
+                        uart_enqueue_input(input_buf[i]);
+                    }
+                }
+            }
+        } while (bytes_read > 0 && !headless_should_quit);
+
+        for (uint16_t i = 0; i < 500; i++) {
+            cpu_exec();
+        }
+
+        tx = uart_get_buffer();
+        tx_len = uart_get_buffer_len();
+        if (tx_pos > tx_len) tx_pos = 0;
+        if (tx_len > tx_pos) {
+            fwrite(tx + tx_pos, 1, tx_len - tx_pos, stdout);
+            tx_pos = tx_len;
+        }
+
+        if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            headless_should_quit = 1;
+        }
+        nanosleep(&loop_sleep, NULL);
+    }
+
+    headless_restore_terminal(&original_termios, restore_termios,
+                              original_stdin_flags);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     struct emulator_config config;
 
@@ -176,6 +275,10 @@ int main(int argc, char** argv) {
 
     cpu_init();
     cpu_reset();
+
+    if (config.start_ui_mode == HEADLESS_MODE) {
+        return run_headless();
+    }
 
     WINDOW* win;
     if ((win = initscr()) == NULL) {

@@ -6,7 +6,8 @@
 
 enum ui_mode {
     DEBUGGER_MODE,
-    UART_TERMINAL_MODE
+    UART_TERMINAL_MODE,
+    HEADLESS_MODE
 };
 
 void interface_display_cpu(void);

@@ -67,14 +67,17 @@ Choose the startup UI:
 ./bin/emulator.out --ui debugger
 ./bin/emulator.out --monitor --ui terminal
 ./bin/emulator.out --monitor --cart programs/carts/echo_upper.bin --ui terminal
+./bin/emulator.out --monitor --ui headless
+./bin/emulator.out --monitor --cart programs/carts/echo_upper.bin --ui headless
 ```
 
 `--ui debugger` is the default and starts in the register/memory debugger.
 `--ui terminal` boots directly into the full-screen UART terminal and starts
 the CPU run loop so the monitor or cartridge can interact immediately. F1 or
-Esc returns to the debugger; F2 returns to the UART terminal. `--ui headless`
-is reserved for future stdio mode and currently prints a clear not-implemented
-message.
+Esc returns to the debugger; F2 returns to the UART terminal.
+`--ui headless` skips ncurses and connects host stdin/stdout directly to the
+emulated UART. In headless mode, Ctrl+C or Ctrl+X terminates the emulator, and
+Ctrl+R resets the emulated CPU.
 
 The legacy form `./bin/emulator.out your_binary_here` is still accepted as a
 cartridge shortcut. The legacy form `./bin/emulator.out --monitor myprog.bin`
@@ -137,6 +140,13 @@ The emulator has two ncurses screens:
 
 Entering UART TERMINAL mode starts the run loop so programs that poll the UART can respond immediately.
 You can also start there directly with `--ui terminal`.
+
+`--ui headless` runs without ncurses and wires the host terminal directly to the
+emulated UART. For example:
+
+```
+./bin/emulator.out --monitor --cart programs/carts/echo_upper.bin --ui headless
+```
 
 ### UART terminal test
 
