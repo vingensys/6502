@@ -190,14 +190,49 @@ Initial commands are compact and use hexadecimal:
 M0000
 W00052A
 M0000
+B8005
+L
+C
 R
 G8000
 ```
 
-`?` prints help. `Mhhhh` dumps 16 bytes. `Whhhhbb` writes one byte. `Ghhhh` jumps to an address. `R` re-enters the monitor prompt without resetting the emulator. `Rhhhh` remains accepted as a legacy alias for `Ghhhh`.
+`?` prints help. `Mhhhh` dumps 16 bytes. `Whhhhbb` writes one byte.
+`Ghhhh` jumps to an address. `R` re-enters the monitor prompt without
+resetting the emulator. `Rhhhh` remains accepted as a legacy alias for
+`Ghhhh`.
+
+Breakpoint commands are monitor-managed and use a single BRK patch:
+
+| Command | Behavior |
+| --- | --- |
+| `Bhhhh` | Set one breakpoint at address `hhhh`, replacing the original byte with BRK. |
+| `C` | Clear the active breakpoint and restore its original byte. Prints `NONE` if no breakpoint is active. |
+| `L` | List the active breakpoint as `Bhhhh`, or print `NONE`. |
 
 For example, after `./bin/emulator.out --monitor --cart myprog.bin`, use
 `G8000` at the monitor prompt to jump from the monitor into `myprog.bin`.
+
+Breakpoint example:
+
+```
+programs/carts/build_carts.sh
+./bin/emulator.out --monitor --cart programs/carts/breakpoint_test.bin
+```
+
+Press F2 for UART TERMINAL mode, then type:
+
+```
+B8005
+G8000
+```
+
+The monitor restores the original byte and prints:
+
+```
+BRK 8005
+>
+```
 
 You can also load another kernel ROM explicitly:
 

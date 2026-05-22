@@ -18,6 +18,7 @@ Generated cartridges:
 | `uart_hi.bin` | Writes `HI` to UART `$D010`, then executes a NOP. |
 | `uart_echo.bin` | Polls UART status, reads UART input, echoes it back, and loops. |
 | `store_2a.bin` | Stores `$2A` at zero-page address `$0005`, then executes two NOPs. |
+| `breakpoint_test.bin` | Writes `A`, executes a NOP at `$8005`, then writes `B` and loops. |
 
 They can be run directly or from the monitor:
 

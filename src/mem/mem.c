@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "../cpu/cpu.h"
 #include "../peripherals/uart.h"
 
 static uint8_t memory[TOTAL_MEM];
@@ -122,6 +123,13 @@ void mem_write(uint16_t addr, uint8_t value) {
         return;
     }
     if (is_io(addr)) {
+        return;
+    }
+
+    /* Monitor/debug privilege: kernel ROM code may patch cartridge ROM for
+     * BRK breakpoints. User code still sees $8000-$BFFF as normal ROM. */
+    if (is_program_rom(addr) && is_kernel_rom(cpu.pc)) {
+        memory[addr] = value;
         return;
     }
 

@@ -12,6 +12,12 @@ ZP_TMP = 0x04
 ZP_VALUE = 0x05
 ZP_STR = 0x06
 ZP_OUT = 0x08
+ZP_BP_ACTIVE = 0x09
+ZP_BP_LO = 0x0A
+ZP_BP_HI = 0x0B
+ZP_BP_BYTE = 0x0C
+ZP_RET_LO = 0x0D
+ZP_RET_HI = 0x0E
 CMD = 0x0200
 UART_DATA = 0xD010
 UART_STATUS = 0xD011
@@ -23,6 +29,7 @@ class Asm:
         self.code = bytearray()
         self.labels = {}
         self.fixups = []
+        self._branch_id = 0
 
     @property
     def pc(self):
@@ -69,6 +76,7 @@ class Asm:
     def lda_zp(self, addr): self.b(0xA5, addr)
     def sta_zp(self, addr): self.b(0x85, addr)
     def ora_zp(self, addr): self.b(0x05, addr)
+    def cmp_zp(self, addr): self.b(0xC5, addr)
     def lda_abs(self, addr): self.b(0xAD, addr, addr >> 8)
     def sta_abs(self, addr): self.b(0x8D, addr, addr >> 8)
     def lda_abx(self, addr): self.b(0xBD, addr, addr >> 8)
@@ -86,9 +94,11 @@ class Asm:
     def inx(self): self.b(0xE8)
     def iny(self): self.b(0xC8)
     def tax(self): self.b(0xAA)
+    def tsx(self): self.b(0xBA)
     def txs(self): self.b(0x9A)
     def sec(self): self.b(0x38)
     def clc(self): self.b(0x18)
+    def cld(self): self.b(0xD8)
     def rts(self): self.b(0x60)
     def jmp_abs(self, label):
         self.b(0x4C)
@@ -106,6 +116,19 @@ class Asm:
     def bmi(self, label):
         self.b(0x30)
         self.rel_fix(label)
+    def bne_abs(self, label):
+        skip = f"bne_abs_skip_{self._branch_id}"
+        self._branch_id += 1
+        self.beq(skip)
+        self.jmp_abs(label)
+        self.label(skip)
+    def jump_if_a_eq(self, value, label):
+        skip = f"cmp_abs_skip_{self._branch_id}"
+        self._branch_id += 1
+        self.cmp_imm(value)
+        self.bne(skip)
+        self.jmp_abs(label)
+        self.label(skip)
 
     def resolve(self):
         for kind, pos, label in self.fixups:
@@ -127,8 +150,11 @@ class Asm:
 a = Asm(BASE)
 
 a.label("reset")
+a.cld()
 a.ldx_imm(0xFF)
 a.txs()
+a.lda_imm(0)
+a.sta_zp(ZP_BP_ACTIVE)
 a.jsr("print_banner")
 
 a.label("main")
@@ -171,24 +197,21 @@ a.rts()
 
 a.label("handle_command")
 a.lda_abs(CMD)
-a.cmp_imm(ord("?"))
-a.beq("cmd_help")
-a.cmp_imm(ord("G"))
-a.beq("cmd_run")
-a.cmp_imm(ord("g"))
-a.beq("cmd_run")
-a.cmp_imm(ord("R"))
-a.beq("cmd_restart_or_legacy_run")
-a.cmp_imm(ord("r"))
-a.beq("cmd_restart_or_legacy_run")
-a.cmp_imm(ord("M"))
-a.beq("cmd_dump")
-a.cmp_imm(ord("m"))
-a.beq("cmd_dump")
-a.cmp_imm(ord("W"))
-a.beq("cmd_write")
-a.cmp_imm(ord("w"))
-a.beq("cmd_write")
+a.jump_if_a_eq(ord("?"), "cmd_help")
+a.jump_if_a_eq(ord("G"), "cmd_run")
+a.jump_if_a_eq(ord("g"), "cmd_run")
+a.jump_if_a_eq(ord("R"), "cmd_restart_or_legacy_run")
+a.jump_if_a_eq(ord("r"), "cmd_restart_or_legacy_run")
+a.jump_if_a_eq(ord("M"), "cmd_dump")
+a.jump_if_a_eq(ord("m"), "cmd_dump")
+a.jump_if_a_eq(ord("W"), "cmd_write")
+a.jump_if_a_eq(ord("w"), "cmd_write")
+a.jump_if_a_eq(ord("B"), "cmd_break_set")
+a.jump_if_a_eq(ord("b"), "cmd_break_set")
+a.jump_if_a_eq(ord("C"), "cmd_break_clear")
+a.jump_if_a_eq(ord("c"), "cmd_break_clear")
+a.jump_if_a_eq(ord("L"), "cmd_break_list")
+a.jump_if_a_eq(ord("l"), "cmd_break_list")
 a.jmp_abs("cmd_err")
 
 a.label("cmd_help")
@@ -212,13 +235,13 @@ a.rts()
 a.label("cmd_run")
 a.jsr("parse_addr")
 a.cmp_imm(0)
-a.bne("cmd_err")
+a.bne_abs("cmd_err")
 a.jmp_ind(ZP_PTR)
 
 a.label("cmd_dump")
 a.jsr("parse_addr")
 a.cmp_imm(0)
-a.bne("cmd_err")
+a.bne_abs("cmd_err")
 a.jsr("print_addr")
 a.lda_imm(ord(":"))
 a.jsr("putc")
@@ -239,10 +262,10 @@ a.rts()
 a.label("cmd_write")
 a.jsr("parse_addr")
 a.cmp_imm(0)
-a.bne("cmd_err")
+a.bne_abs("cmd_err")
 a.jsr("parse_byte")
 a.cmp_imm(0)
-a.bne("cmd_err")
+a.bne_abs("cmd_err")
 a.ldy_imm(0)
 a.lda_zp(ZP_VALUE)
 a.sta_izy(ZP_PTR)
@@ -253,6 +276,43 @@ a.sta_zp(ZP_STR + 1)
 a.jsr("puts")
 a.rts()
 
+a.label("cmd_break_set")
+a.jsr("parse_addr")
+a.cmp_imm(0)
+a.bne_abs("cmd_err")
+a.jsr("restore_breakpoint_if_active")
+a.ldy_imm(0)
+a.lda_izy(ZP_PTR)
+a.sta_zp(ZP_BP_BYTE)
+a.lda_zp(ZP_PTR)
+a.sta_zp(ZP_BP_LO)
+a.lda_zp(ZP_PTR_HI)
+a.sta_zp(ZP_BP_HI)
+a.lda_imm(1)
+a.sta_zp(ZP_BP_ACTIVE)
+a.lda_imm(0)
+a.sta_izy(ZP_PTR)
+a.jmp_abs("cmd_ok")
+
+a.label("cmd_break_clear")
+a.lda_zp(ZP_BP_ACTIVE)
+a.beq("cmd_none")
+a.jsr("restore_breakpoint_if_active")
+a.jmp_abs("cmd_ok")
+
+a.label("cmd_break_list")
+a.lda_zp(ZP_BP_ACTIVE)
+a.beq("cmd_none")
+a.lda_imm(ord("B"))
+a.jsr("putc")
+a.lda_zp(ZP_BP_LO)
+a.sta_zp(ZP_PTR)
+a.lda_zp(ZP_BP_HI)
+a.sta_zp(ZP_PTR_HI)
+a.jsr("print_addr")
+a.jsr("newline")
+a.rts()
+
 a.label("cmd_err")
 a.lda_imm_lo("err")
 a.sta_zp(ZP_STR)
@@ -260,6 +320,80 @@ a.lda_imm_hi("err")
 a.sta_zp(ZP_STR + 1)
 a.jsr("puts")
 a.rts()
+
+a.label("cmd_ok")
+a.lda_imm_lo("ok")
+a.sta_zp(ZP_STR)
+a.lda_imm_hi("ok")
+a.sta_zp(ZP_STR + 1)
+a.jsr("puts")
+a.rts()
+
+a.label("cmd_none")
+a.lda_imm_lo("none")
+a.sta_zp(ZP_STR)
+a.lda_imm_hi("none")
+a.sta_zp(ZP_STR + 1)
+a.jsr("puts")
+a.rts()
+
+a.label("restore_breakpoint_if_active")
+a.lda_zp(ZP_BP_ACTIVE)
+a.beq("restore_breakpoint_done")
+a.lda_zp(ZP_BP_LO)
+a.sta_zp(ZP_PTR)
+a.lda_zp(ZP_BP_HI)
+a.sta_zp(ZP_PTR_HI)
+a.ldy_imm(0)
+a.lda_zp(ZP_BP_BYTE)
+a.sta_izy(ZP_PTR)
+a.lda_imm(0)
+a.sta_zp(ZP_BP_ACTIVE)
+a.label("restore_breakpoint_done")
+a.rts()
+
+a.label("brk_handler")
+a.cld()
+a.tsx()
+a.inx()
+a.inx()
+a.lda_abx(0x0100)
+a.sta_zp(ZP_RET_LO)
+a.inx()
+a.lda_abx(0x0100)
+a.sta_zp(ZP_RET_HI)
+a.sec()
+a.lda_zp(ZP_RET_LO)
+a.sbc_imm(2)
+a.sta_zp(ZP_PTR)
+a.lda_zp(ZP_RET_HI)
+a.sbc_imm(0)
+a.sta_zp(ZP_PTR_HI)
+a.lda_zp(ZP_BP_ACTIVE)
+a.beq("brk_plain")
+a.lda_zp(ZP_PTR)
+a.cmp_zp(ZP_BP_LO)
+a.bne("brk_plain")
+a.lda_zp(ZP_PTR_HI)
+a.cmp_zp(ZP_BP_HI)
+a.bne("brk_plain")
+a.jsr("restore_breakpoint_if_active")
+a.lda_imm_lo("brk_hit")
+a.sta_zp(ZP_STR)
+a.lda_imm_hi("brk_hit")
+a.sta_zp(ZP_STR + 1)
+a.jsr("puts")
+a.jsr("print_addr")
+a.jsr("newline")
+a.jmp_abs("main")
+
+a.label("brk_plain")
+a.lda_imm_lo("brk_plain_msg")
+a.sta_zp(ZP_STR)
+a.lda_imm_hi("brk_plain_msg")
+a.sta_zp(ZP_STR + 1)
+a.jsr("puts")
+a.jmp_abs("main")
 
 a.label("parse_addr")
 for offset, dest in ((1, ZP_PTR_HI), (3, ZP_PTR)):
@@ -386,14 +520,32 @@ a.rts()
 a.label("banner")
 a.zstr("TMS6502 MONITOR\n")
 a.label("help")
-a.zstr("?:HELP Mhhhh Whhhhbb Ghhhh R\n")
+a.zstr("?:HELP Mhhhh Whhhhbb Ghhhh R Bhhhh C L\n")
 a.label("ok")
 a.zstr("OK\n")
+a.label("none")
+a.zstr("NONE\n")
 a.label("err")
 a.zstr("ERR\n")
+a.label("brk_hit")
+a.zstr("BRK ")
+a.label("brk_plain_msg")
+a.zstr("BRK\n")
 a.label("hex_chars")
 a.text("0123456789ABCDEF")
 
 a.resolve()
-OUT.write_bytes(a.code)
-print(f"wrote {OUT} ({len(a.code)} bytes, ${BASE:04X}-${BASE + len(a.code) - 1:04X})")
+rom = bytearray([0x00] * 0x2000)
+rom[:len(a.code)] = a.code
+vectors = {
+    0xFFFA: a.labels["reset"],
+    0xFFFC: a.labels["reset"],
+    0xFFFE: a.labels["brk_handler"],
+}
+for addr, target in vectors.items():
+    offset = addr - BASE
+    rom[offset] = target & 0xFF
+    rom[offset + 1] = target >> 8
+
+OUT.write_bytes(rom)
+print(f"wrote {OUT} ({len(rom)} bytes, ${BASE:04X}-$FFFF)")

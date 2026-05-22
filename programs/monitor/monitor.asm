@@ -12,6 +12,9 @@
 ;   Ghhhh   jump to address
 ;   R       re-enter monitor
 ;   Rhhhh   legacy jump alias
+;   Bhhhh   set one breakpoint
+;   C       clear breakpoint
+;   L       list breakpoint
 
         .org $E000
 
