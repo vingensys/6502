@@ -14,6 +14,9 @@
  * */
 struct central_processing_unit cpu;
 struct cpu_memory_trace cpu_trace;
+static struct cpu_execution_stats cpu_stats;
+static uint8_t irq_pending = 0;
+static uint8_t nmi_pending = 0;
 
 // clock cycles, every fetch implies a clock cycle
 uint32_t cycles = 0;
@@ -41,7 +44,7 @@ uint8_t cpu_extract_sr(uint8_t flag) { return ((cpu.sr >> (flag % 8)) & 1); }
 uint8_t cpu_mod_sr(uint8_t flag, uint8_t val) {
     if (val != 0 && val != 1) return 1;
 
-    if (flag > 0 && flag < 8 && flag != 5) {
+    if (flag < 8 && flag != 5) {
         if (val == 1) {
             SET_BIT(cpu.sr, flag);
         } else {
@@ -51,6 +54,75 @@ uint8_t cpu_mod_sr(uint8_t flag, uint8_t val) {
     } else {
         return 1;
     }
+}
+
+uint8_t cpu_status_for_push(uint8_t break_flag) {
+    uint8_t status = cpu.sr | (1 << 5);
+
+    if (break_flag) {
+        status |= (1 << B);
+    } else {
+        status &= ~(1 << B);
+    }
+
+    return status;
+}
+
+void cpu_restore_status(uint8_t status) {
+    cpu.sr = (status | (1 << 5)) & ~(1 << B);
+}
+
+void cpu_push_u8(uint8_t value) {
+    cpu_write(0x0100 + cpu.sp, value);
+    cpu.sp--;
+}
+
+uint8_t cpu_pull_u8(void) {
+    cpu.sp++;
+    return cpu_fetch(0x0100 + cpu.sp);
+}
+
+static void cpu_service_interrupt(uint16_t vector_addr, uint8_t break_flag) {
+    cpu_push_u8((cpu.pc >> 8) & 0x00FF);
+    cpu_push_u8(cpu.pc & 0x00FF);
+    cpu_push_u8(cpu_status_for_push(break_flag));
+
+    cpu_mod_sr(I, 1);
+    cpu_mod_sr(B, 0);
+    cpu.sr |= (1 << 5);
+    cpu.pc = mem_read16(vector_addr);
+}
+
+void cpu_service_brk(void) {
+    cpu_service_interrupt(MEM_VECTOR_IRQ, 1);
+}
+
+void cpu_request_irq(void) {
+    irq_pending = 1;
+}
+
+void cpu_request_nmi(void) {
+    nmi_pending = 1;
+}
+
+static uint8_t cpu_service_pending_interrupt(uint32_t* instruction_cycles) {
+    if (nmi_pending) {
+        nmi_pending = 0;
+        cpu_service_interrupt(MEM_VECTOR_NMI, 0);
+        *instruction_cycles = 7;
+        return 1;
+    }
+
+    if (irq_pending) {
+        irq_pending = 0;
+        if (cpu_extract_sr(I)) return 0;
+
+        cpu_service_interrupt(MEM_VECTOR_IRQ, 0);
+        *instruction_cycles = 7;
+        return 1;
+    }
+
+    return 0;
 }
 
 /**
@@ -66,9 +138,13 @@ void cpu_reset(void) {
     debug_print("(cpu_reset) reset vector PC: 0x%X\n", cpu.pc);
 
     cycles = 0;
+    cpu_stats.total_instructions_executed = 0;
+    cpu_stats.total_cycles_executed = 0;
     cpu_trace.has_instruction_fetch = 0;
     cpu_trace.has_data_read = 0;
     cpu_trace.has_data_write = 0;
+    irq_pending = 0;
+    nmi_pending = 0;
 }
 
 /**
@@ -116,19 +192,32 @@ void cpu_exec(void) {
     debug_print("(cpu_exec) cycles: %d\n", cycles);
 
     int8_t fetched;
+    uint32_t instruction_cycles = 0;
     do {
         debug_print("(loop) cycles: %d\n", cycles);
         // executing in a take
         if (cycles == 0) {
-            uint16_t opcode_addr = cpu.pc;
-            fetched = cpu_fetch(cpu.pc);
-            cpu_trace.last_instruction_fetch_addr = opcode_addr;
-            cpu_trace.last_opcode_byte = fetched;
-            cpu_trace.has_instruction_fetch = 1;
+            if (cpu_service_pending_interrupt(&instruction_cycles)) {
+                cycles = instruction_cycles;
+            } else {
+                uint16_t opcode_addr = cpu.pc;
+                fetched = cpu_fetch(cpu.pc);
+                cpu_trace.last_instruction_fetch_addr = opcode_addr;
+                cpu_trace.last_opcode_byte = fetched;
+                cpu_trace.has_instruction_fetch = 1;
 
-            debug_print("(cpu_exec) fetched: 0x%X\n", fetched);
-            inst_exec(fetched, &cycles);
+                debug_print("(cpu_exec) fetched: 0x%X\n", fetched);
+                inst_exec(fetched, &cycles);
+                instruction_cycles = cycles;
+            }
         }
         cycles--;
     } while (cycles != 0);
+
+    cpu_stats.total_instructions_executed++;
+    cpu_stats.total_cycles_executed += instruction_cycles;
+}
+
+struct cpu_execution_stats cpu_get_execution_stats(void) {
+    return cpu_stats;
 }

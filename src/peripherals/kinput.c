@@ -1,5 +1,6 @@
 #include "kinput.h"
 
+#include <ctype.h>
 #include <ncurses.h>
 #include <stdint.h>
 
@@ -10,15 +11,11 @@
 uint8_t QUIT = 0;
 static uint8_t RUNNING = 0;
 
-/**
- * kinput_listen: listens for keyboard events and exuctes respective actions
- * @param void
- * @return void
- * */
-void kinput_listen(void) {
-    int c = getch();
-
+static void handle_debugger_key(int c) {
     switch (c) {
+        case ERR:
+            break;
+
         case '\n':
         case KEY_ENTER:
             cpu_exec();
@@ -61,6 +58,11 @@ void kinput_listen(void) {
             interface_handle_resize();
             break;
 
+        case KEY_F(2):
+            interface_set_mode(UART_TERMINAL_MODE);
+            RUNNING = 1;
+            break;
+
         case ' ':
             RUNNING = !RUNNING;
             break;
@@ -88,6 +90,55 @@ void kinput_listen(void) {
 
         default:
             break;
+    }
+}
+
+static void handle_uart_terminal_key(int c) {
+    switch (c) {
+        case ERR:
+            break;
+
+        case KEY_RESIZE:
+            interface_handle_resize();
+            break;
+
+        case KEY_F(1):
+        case 27:
+        case 3:
+            interface_set_mode(DEBUGGER_MODE);
+            break;
+
+        case '\n':
+        case KEY_ENTER:
+            uart_enqueue_input('\n');
+            break;
+
+        case KEY_BACKSPACE:
+        case 127:
+        case '\b':
+            uart_enqueue_input(0x08);
+            break;
+
+        default:
+            if (c >= 0 && c <= UINT8_MAX && isprint(c)) {
+                uart_enqueue_input((uint8_t)c);
+            }
+            break;
+    }
+}
+
+/**
+ * kinput_listen: listens for keyboard events and exuctes respective actions
+ * @param void
+ * @return void
+ * */
+void kinput_listen(void) {
+    int c = getch();
+
+    if (interface_get_mode() == UART_TERMINAL_MODE) {
+        handle_uart_terminal_key(c);
+    } else {
+        handle_debugger_key(c);
     }
 }
 

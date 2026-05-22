@@ -260,7 +260,7 @@ void reset(void) {
     cpu.x = 0;
     cpu.y = 0;
     cpu.sp = 0xFD;
-    cpu.sr = 0x00;
+    cpu.sr = (1 << 5);
 
     addr_rel = 0x0000;
     addr_abs = 0x0000;
@@ -530,20 +530,7 @@ static uint8_t LDY(void) {
 }
 
 static uint8_t BRK(void) {
-    cpu.pc++;
-    set_flag(I, true);
-
-    cpu_write(0x0100 + cpu.sp, (cpu.pc >> 8) & 0x00FF);
-    cpu.sp--;
-    cpu_write(0x0100 + cpu.sp, cpu.pc & 0x00FF);
-    cpu.sp--;
-
-    set_flag(B, true);
-    cpu_write(0x0100 + cpu.sp, cpu.sr);
-    cpu.sp--;
-    set_flag(B, false);
-
-    cpu.pc = (uint16_t)cpu_fetch(0xFFFE) | ((uint16_t)cpu_fetch(0xFFFF) << 8);
+    cpu_service_brk();
     return 0;
 }
 
@@ -561,15 +548,9 @@ static uint8_t JSR(void) {
 }
 
 static uint8_t RTI(void) {
-    cpu.sp++;
-
-    cpu.sr = cpu_fetch(0x0100 + cpu.sp);
-    cpu.sr &= ~B;
-
-    cpu.sp++;
-    cpu.pc = (uint16_t)cpu_fetch(0x0100 + cpu.sp);
-    cpu.sp++;
-    cpu.pc |= (uint16_t)cpu_fetch(0x0100 + cpu.sp) << 8;
+    cpu_restore_status(cpu_pull_u8());
+    cpu.pc = (uint16_t)cpu_pull_u8();
+    cpu.pc |= (uint16_t)cpu_pull_u8() << 8;
 
     return 0;
 }
@@ -585,7 +566,6 @@ static uint8_t RTS(void) {
 }
 
 static uint8_t NOP(void) {
-    cpu.pc++;
     return 0;
 }
 
@@ -689,7 +669,7 @@ static uint8_t ORA(void) {
     fetch();
     cpu.ac = cpu.ac | fetched;
 
-    set_flag(C, cpu.ac == 0);
+    set_flag(Z, cpu.ac == 0);
     set_flag(N, cpu.ac & (1 << 7));
 
     return 1;
@@ -704,7 +684,7 @@ static uint8_t AND(void) {
     fetch();
     cpu.ac = cpu.ac & fetched;
 
-    set_flag(C, cpu.ac == 0);
+    set_flag(Z, cpu.ac == 0);
     set_flag(N, cpu.ac & (1 << 7));
 
     return 1;
@@ -719,7 +699,7 @@ static uint8_t EOR(void) {
     fetch();
     cpu.ac = cpu.ac ^ fetched;
 
-    set_flag(C, cpu.ac == 0);
+    set_flag(Z, cpu.ac == 0);
     set_flag(N, cpu.ac & (1 << 7));
 
     return 1;
@@ -729,7 +709,7 @@ static uint8_t BIT(void) {
     fetch();
     uint16_t tmp = cpu.ac & fetched;
 
-    set_flag(Z, (tmp & 0x00F) == 0x00);
+    set_flag(Z, (tmp & 0x00FF) == 0x00);
     set_flag(N, (fetched & (1 << 7)));
     set_flag(V, (fetched & (1 << 6)));
 
@@ -738,6 +718,30 @@ static uint8_t BIT(void) {
 
 static uint8_t ADC(void) {
     fetch();
+
+    if (cpu_extract_sr(D)) {
+        uint8_t acc = cpu.ac;
+        uint16_t carry_in = (uint16_t)cpu_extract_sr(C);
+        uint16_t binary =
+            (uint16_t)acc + (uint16_t)fetched + carry_in;
+        uint16_t decimal = binary;
+
+        if (((acc & 0x0F) + (fetched & 0x0F) + carry_in) > 9) {
+            decimal += 0x06;
+        }
+
+        set_flag(C, decimal > 0x99);
+        if (decimal > 0x99) decimal += 0x60;
+
+        cpu.ac = decimal & 0x00FF;
+        set_flag(Z, cpu.ac == 0);
+        set_flag(V, ((~((uint16_t)acc ^ (uint16_t)fetched) &
+                      ((uint16_t)acc ^ binary)) &
+                     0x0080));
+        set_flag(N, cpu.ac & 0x80);
+
+        return 1;
+    }
 
     uint16_t tmp =
         (uint16_t)cpu.ac + (uint16_t)fetched + (uint16_t)cpu_extract_sr(C);
@@ -784,6 +788,28 @@ static uint8_t CMP(void) {
 
 static uint8_t SBC(void) {
     fetch();
+
+    if (cpu_extract_sr(D)) {
+        uint16_t borrow = cpu_extract_sr(C) ? 0 : 1;
+        int16_t binary = (int16_t)cpu.ac - (int16_t)fetched - (int16_t)borrow;
+        int16_t decimal = binary;
+
+        if (((int16_t)(cpu.ac & 0x0F) - (int16_t)(fetched & 0x0F) -
+             (int16_t)borrow) < 0) {
+            decimal -= 0x06;
+        }
+        if (decimal < 0) decimal -= 0x60;
+
+        set_flag(C, binary >= 0);
+        set_flag(V, (((uint16_t)cpu.ac ^ (uint16_t)fetched) &
+                     ((uint16_t)cpu.ac ^ (uint16_t)binary) & 0x0080));
+
+        cpu.ac = decimal & 0x00FF;
+        set_flag(Z, cpu.ac == 0);
+        set_flag(N, cpu.ac & 0x80);
+
+        return 1;
+    }
 
     // inverting the bottom 8 bits
     uint16_t val = ((uint16_t)fetched) ^ 0x00FF;
@@ -880,7 +906,7 @@ static uint8_t DEC(void) {
 }
 
 static uint8_t DEX(void) {
-    cpu.x++;
+    cpu.x--;
 
     set_flag(Z, cpu.x == 0x00);
     set_flag(N, cpu.x & (1 << 7));
@@ -928,9 +954,7 @@ static uint8_t INY(void) {
 }
 
 static uint8_t PHP(void) {
-    cpu_write(0x0100 + cpu.sp, cpu.sr);
-    cpu.sp--;
-
+    cpu_push_u8(cpu_status_for_push(1));
     return 0;
 }
 
@@ -945,9 +969,7 @@ static uint8_t CLC(void) {
 }
 
 static uint8_t PLP(void) {
-    cpu.sp++;
-    cpu.sr = cpu_fetch(0x0100 + cpu.sp);
-
+    cpu_restore_status(cpu_pull_u8());
     return 0;
 }
 
@@ -963,9 +985,7 @@ static uint8_t PLA(void) {
 
 static uint8_t PHA(void) {
     // 0x0100 is the starting addr of the stack
-    cpu_write(0x0100 + cpu.sp, cpu.ac);
-    cpu.sp--;
-
+    cpu_push_u8(cpu.ac);
     return 0;
 }
 

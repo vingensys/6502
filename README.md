@@ -28,13 +28,42 @@ Or you can run the _shortcut_ script
 bash run.sh
 ```
 
-### Loading a custom program
+### Boot configuration
 
-By default, the emulator loads `example.bin`. If you want to load a custom binary file, just provide the path as the second argument while launching the emulator:
+By default, the emulator preserves the original simple behavior: it loads
+`example.bin` as a cartridge at `$8000` and sets RESET to `$8000`.
 
 ```
-./bin/emulator.out your_binary_here
+./bin/emulator.out
 ```
+
+Run a cartridge directly:
+
+```
+./bin/emulator.out --cart programs/carts/ok_once.bin
+```
+
+Boot the monitor ROM only:
+
+```
+./bin/emulator.out --monitor
+```
+
+Boot the monitor ROM with a cartridge at `$8000`:
+
+```
+./bin/emulator.out --monitor --cart programs/carts/ok_once.bin
+```
+
+Use the full explicit form:
+
+```
+./bin/emulator.out --cpu nmos6502 --rom programs/monitor/monitor.bin --cart programs/carts/ok_once.bin
+```
+
+The legacy form `./bin/emulator.out your_binary_here` is still accepted as a
+cartridge shortcut. The legacy form `./bin/emulator.out --monitor myprog.bin`
+is accepted as a deprecated alias for `--monitor --cart myprog.bin`.
 
 ## Code style
 
@@ -52,6 +81,9 @@ The project is divided in multiple components:
 -   **peripherals**
     -   **interface**: everyhting ncurses related
     -   **keyboard handler**: listener for key presses
+
+CPU opcode coverage is tracked in `docs/opcode_coverage.md`. Future CPU
+variant/profile planning is tracked in `docs/cpu_profiles.md`.
 
 ## Memory Map
 
@@ -78,25 +110,100 @@ The vector table lives at the end of kernel ROM:
 | `$FFFC-$FFFD` | RESET |
 | `$FFFE-$FFFF` | IRQ/BRK |
 
-By default, binaries are loaded at `$8000` and the RESET vector is set to `$8000`.
+By default, cartridge binaries are loaded at `$8000` and the RESET vector is set
+to `$8000`. If a kernel ROM is loaded at `$E000`, RESET is set to `$E000`.
+
+## UI modes
+
+The emulator has two ncurses screens:
+
+-   **DEBUGGER mode**: shows CPU registers, flags, fetch/decode, trace, vectors, memory panes, and the small UART output pane. Debugger controls are active here: Enter steps, Space runs or pauses, `n` runs 10 instructions, `q` quits, `r` resets, and the memory pane navigation keys scroll/select panes.
+-   **UART TERMINAL mode**: a full-screen terminal connected to the emulated UART. Press F2 from DEBUGGER mode to enter it. Press F1 or Esc to return to the debugger. In this mode, printable keys are sent to the UART RX FIFO, Enter sends newline, and Backspace sends `0x08`. A typed `q` is sent to the emulated UART instead of quitting the emulator.
+
+Entering UART TERMINAL mode starts the run loop so programs that poll the UART can respond immediately.
 
 ### UART terminal test
 
-The first memory-mapped peripheral is a simple output-only UART:
+The first memory-mapped peripheral is a simple UART:
 
 | Address | Register |
 | --- | --- |
 | `$D010` | UART data |
-| `$D011` | UART status, bit 0 = TX ready |
+| `$D011` | UART status, bit 0 = TX ready, bit 1 = RX ready |
 
-Writes to `$D010` append ASCII text to the debugger's Terminal pane. Input is not implemented yet. To create a tiny program that prints `HI`:
+Writes to `$D010` append ASCII text to the debugger's Terminal pane. Reads from `$D010` consume queued keyboard input when bit 1 is set in `$D011`.
+
+To create a tiny program that prints `HI`:
 
 ```
-printf '\xA9\x48\x8D\x10\xD0\xA9\x49\x8D\x10\xD0\xEA' > uart_hi.bin
-./bin/emulator.out uart_hi.bin
+programs/carts/build_carts.sh
+./bin/emulator.out --cart programs/carts/uart_hi.bin
 ```
 
 Step through the program or run it; the Terminal pane should show `HI`.
+
+To create a tiny echo loop:
+
+```
+programs/carts/build_carts.sh
+./bin/emulator.out --cart programs/carts/uart_echo.bin
+```
+
+Press F2 to enter UART TERMINAL mode, then type printable keys. The program polls `$D011`, reads from `$D010`, and writes the byte back to `$D010`, so typed characters appear in the terminal screen. Press F1 or Esc to return to the debugger.
+
+## Monitor ROM
+
+The emulator includes a tiny WOZMON-inspired monitor ROM that boots from kernel ROM at `$E000` and talks through the UART.
+
+Build the ROM:
+
+```
+programs/monitor/build_monitor.sh
+```
+
+Run monitor mode:
+
+```
+./bin/emulator.out --monitor
+```
+
+Monitor mode is a shortcut for loading `programs/monitor/monitor.bin` at
+`$E000` and setting the RESET vector `$FFFC/$FFFD` to `$E000`. It does not
+automatically load a cartridge. You can load a `$8000` cartridge while still
+booting into the monitor:
+
+```
+./bin/emulator.out --monitor --cart myprog.bin
+```
+
+Press F2 to switch to UART TERMINAL mode and start interacting with the monitor. The expected startup text is:
+
+```
+TMS6502 MONITOR
+>
+```
+
+Initial commands are compact and use hexadecimal:
+
+```
+?
+M0000
+W00052A
+M0000
+R
+G8000
+```
+
+`?` prints help. `Mhhhh` dumps 16 bytes. `Whhhhbb` writes one byte. `Ghhhh` jumps to an address. `R` re-enters the monitor prompt without resetting the emulator. `Rhhhh` remains accepted as a legacy alias for `Ghhhh`.
+
+For example, after `./bin/emulator.out --monitor --cart myprog.bin`, use
+`G8000` at the monitor prompt to jump from the monitor into `myprog.bin`.
+
+You can also load another kernel ROM explicitly:
+
+```
+./bin/emulator.out --rom programs/monitor/monitor.bin
+```
 
 ## Dump feature
 

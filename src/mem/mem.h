@@ -28,11 +28,16 @@
 #define MEM_VECTOR_IRQ 0xFFFE
 
 void mem_init(char* filename);
+void mem_init_machine(const char* rom_path, const char* cart_path);
+void mem_init_monitor(const char* kernel_filename, const char* cart_filename);
+void mem_init_kernel(const char* kernel_filename);
 uint8_t mem_read(uint16_t addr);
 void mem_write(uint16_t addr, uint8_t value);
 uint16_t mem_read16(uint16_t addr);
 uint8_t mem_load_program(const char* path, uint16_t base_addr);
+uint8_t mem_load_cart(const char* path, uint16_t base_addr);
 void mem_set_reset_vector(uint16_t addr);
+void mem_set_vector(uint16_t vector_addr, uint16_t target_addr);
 uint8_t mem_load_kernel_rom(const char* path, uint16_t base_addr);
 const uint8_t* mem_region_ptr(uint16_t base_addr);
 int mem_dump(void);

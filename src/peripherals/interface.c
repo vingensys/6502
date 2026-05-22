@@ -1,12 +1,16 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "interface.h"
 
 #include <ncurses.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "../cpu/cpu.h"
 #include "../mem/mem.h"
+#include "kinput.h"
 #include "uart.h"
 
 #define MAX_BYTES_PER_ROW 16
@@ -39,6 +43,7 @@ struct memory_region {
 struct interface_state {
     enum memory_view active_view;
     uint16_t scroll[MEM_VIEW_COUNT];
+    enum ui_mode mode;
 };
 
 struct opcode_decode {
@@ -58,17 +63,32 @@ struct interface_layout {
     WINDOW* fetch;
     WINDOW* vectors;
     WINDOW* trace;
+    WINDOW* performance;
     WINDOW* memory[MEM_VIEW_COUNT];
     WINDOW* terminal;
+    WINDOW* uart_terminal;
     WINDOW* footer;
 };
 
-static struct interface_state ui_state = {MEM_VIEW_PROGRAM, {0, 0, 0}};
+static struct interface_state ui_state = {
+    MEM_VIEW_PROGRAM, {0, 0, 0}, DEBUGGER_MODE};
 static struct interface_layout layout = {0};
 static uint8_t colors_ready = 0;
 
+struct performance_sample {
+    uint8_t initialized;
+    struct timespec last_time;
+    uint64_t last_total_instructions;
+    uint64_t last_total_cycles;
+    double last_ips;
+    double last_cycles_per_second;
+};
+
+static struct performance_sample perf_sample = {0};
+
 static const struct opcode_decode decode_table[] = {
     {0x00, "BRK", "imp", 1},  {0x18, "CLC", "imp", 1},
+    {0x29, "AND", "imm", 2},  {0x2D, "AND", "abs", 3},
     {0x4C, "JMP", "abs", 3},  {0x6C, "JMP", "ind", 3},
     {0x61, "ADC", "izx", 2},  {0x65, "ADC", "zp", 2},
     {0x69, "ADC", "imm", 2},  {0x6D, "ADC", "abs", 3},
@@ -120,7 +140,7 @@ static void screen_size(int* rows, int* cols) {
 
 static int top_height(int rows) {
     if (rows < 30) return 12;
-    return 13;
+    return 14;
 }
 
 static int footer_height(void) {
@@ -215,11 +235,13 @@ static void delete_layout(void) {
     delete_window(&layout.fetch);
     delete_window(&layout.vectors);
     delete_window(&layout.trace);
+    delete_window(&layout.performance);
     for (enum memory_view view = MEM_VIEW_ZERO_PAGE; view < MEM_VIEW_COUNT;
          view++) {
         delete_window(&layout.memory[view]);
     }
     delete_window(&layout.terminal);
+    delete_window(&layout.uart_terminal);
     delete_window(&layout.footer);
 }
 
@@ -233,6 +255,7 @@ static int create_layout(void) {
     int w_fetch;
     int w_vectors;
     int w_trace;
+    int trace_h;
     int mem_y;
     int mem_h;
     int mem_w;
@@ -253,6 +276,7 @@ static int create_layout(void) {
     }
 
     layout.header = newwin(3, cols, 0, 0);
+    layout.uart_terminal = newwin(rows, cols, 0, 0);
 
     h = top_height(rows) - y;
     w_reg = 26;
@@ -271,7 +295,11 @@ static int create_layout(void) {
     x += w_fetch + 1;
     layout.vectors = newwin(h, w_vectors, y, x);
     x += w_vectors + 1;
-    layout.trace = newwin(h, cols - x - 1, y, x);
+    w_trace = cols - x - 1;
+    trace_h = 5;
+    if (trace_h > h - 3) trace_h = h - 3;
+    layout.trace = newwin(trace_h, w_trace, y, x);
+    layout.performance = newwin(h - trace_h, w_trace, y + trace_h, x);
 
     mem_y = memory_top(rows);
     mem_h = memory_height(rows);
@@ -290,10 +318,12 @@ static int create_layout(void) {
     return layout.header != NULL && layout.registers != NULL &&
            layout.flags != NULL && layout.fetch != NULL &&
            layout.vectors != NULL && layout.trace != NULL &&
+           layout.performance != NULL &&
            layout.memory[MEM_VIEW_ZERO_PAGE] != NULL &&
            layout.memory[MEM_VIEW_STACK] != NULL &&
            layout.memory[MEM_VIEW_PROGRAM] != NULL &&
-           layout.terminal != NULL && layout.footer != NULL;
+           layout.terminal != NULL && layout.uart_terminal != NULL &&
+           layout.footer != NULL;
 }
 
 static int layout_ready(void) {
@@ -399,6 +429,70 @@ static void format_bytes(uint16_t pc, char* buffer, size_t size) {
                  read_addr(pc + i));
         strncat(buffer, next_byte, size - strlen(buffer) - 1);
     }
+}
+
+static double elapsed_seconds(struct timespec start, struct timespec end) {
+    return (double)(end.tv_sec - start.tv_sec) +
+           ((double)(end.tv_nsec - start.tv_nsec) / 1000000000.0);
+}
+
+static void format_rate(double value, const char* suffix, char* buffer,
+                        size_t size) {
+    if (value >= 1000000.0) {
+        snprintf(buffer, size, "%.2fM%s", value / 1000000.0, suffix);
+    } else if (value >= 1000.0) {
+        snprintf(buffer, size, "%.1fK%s", value / 1000.0, suffix);
+    } else {
+        snprintf(buffer, size, "%.0f%s", value, suffix);
+    }
+}
+
+static void format_frequency(double hz, char* buffer, size_t size) {
+    if (hz >= 1000000.0) {
+        snprintf(buffer, size, "%.2f MHz", hz / 1000000.0);
+    } else if (hz >= 1000.0) {
+        snprintf(buffer, size, "%.1f kHz", hz / 1000.0);
+    } else {
+        snprintf(buffer, size, "%.0f Hz", hz);
+    }
+}
+
+static void update_performance_sample(void) {
+    struct cpu_execution_stats stats = cpu_get_execution_stats();
+    struct timespec now;
+    double elapsed;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (!perf_sample.initialized) {
+        perf_sample.initialized = 1;
+        perf_sample.last_time = now;
+        perf_sample.last_total_instructions = stats.total_instructions_executed;
+        perf_sample.last_total_cycles = stats.total_cycles_executed;
+        return;
+    }
+    if (stats.total_instructions_executed < perf_sample.last_total_instructions ||
+        stats.total_cycles_executed < perf_sample.last_total_cycles) {
+        perf_sample.last_time = now;
+        perf_sample.last_total_instructions = stats.total_instructions_executed;
+        perf_sample.last_total_cycles = stats.total_cycles_executed;
+        perf_sample.last_ips = 0.0;
+        perf_sample.last_cycles_per_second = 0.0;
+        return;
+    }
+
+    elapsed = elapsed_seconds(perf_sample.last_time, now);
+    if (elapsed < 0.25) return;
+
+    perf_sample.last_ips =
+        (double)(stats.total_instructions_executed -
+                 perf_sample.last_total_instructions) /
+        elapsed;
+    perf_sample.last_cycles_per_second =
+        (double)(stats.total_cycles_executed - perf_sample.last_total_cycles) /
+        elapsed;
+    perf_sample.last_time = now;
+    perf_sample.last_total_instructions = stats.total_instructions_executed;
+    perf_sample.last_total_cycles = stats.total_cycles_executed;
 }
 
 static void display_header_window(void) {
@@ -519,6 +613,34 @@ static void display_trace_window(void) {
     wnoutrefresh(win);
 }
 
+static void display_performance_window(void) {
+    WINDOW* win = layout.performance;
+    struct cpu_execution_stats stats = cpu_get_execution_stats();
+    char ips_text[20];
+    char freq_text[20];
+
+    if (win == NULL) return;
+
+    update_performance_sample();
+    format_rate(perf_sample.last_ips, "/s", ips_text, sizeof(ips_text));
+    format_frequency(perf_sample.last_cycles_per_second, freq_text,
+                     sizeof(freq_text));
+
+    draw_box(win, "Performance", 0);
+    mvwprintw(win, 1, 2, "Run   %s",
+              kinput_is_running() ? "RUNNING" : "PAUSED");
+    mvwprintw(win, 2, 2, "Total %llu",
+              (unsigned long long)stats.total_instructions_executed);
+    mvwprintw(win, 3, 2, "IPS   %s", ips_text);
+    if (getmaxy(win) > 6) {
+        mvwprintw(win, 4, 2, "Freq  %s", freq_text);
+        mvwprintw(win, 5, 2, "Target unlimited");
+    } else {
+        mvwprintw(win, 4, 2, "Freq  %s", freq_text);
+    }
+    wnoutrefresh(win);
+}
+
 static int attr_for_address(enum memory_view view, uint16_t addr) {
     uint16_t sp_addr = 0x0100 + cpu.sp;
 
@@ -628,6 +750,8 @@ static void display_terminal_window(void) {
     content_h = height - 2;
 
     draw_box(win, "Terminal", 0);
+    mvwprintw(win, 0, width - 12, " RX %03u ",
+              (unsigned int)uart_get_rx_count());
 
     if (content_w <= 0 || content_h <= 0) {
         wnoutrefresh(win);
@@ -659,6 +783,75 @@ static void display_terminal_window(void) {
     wnoutrefresh(win);
 }
 
+void interface_display_uart_terminal(void) {
+    WINDOW* win;
+    const char* buffer;
+    size_t len;
+    int rows;
+    int cols;
+    int content_h;
+    int content_w;
+    int y = 1;
+    int x = 0;
+    size_t start = 0;
+    uint8_t status;
+
+    ensure_colors();
+    if (!layout_ready()) {
+        display_too_small();
+        return;
+    }
+
+    win = layout.uart_terminal;
+    if (win == NULL) return;
+
+    buffer = uart_get_buffer();
+    len = uart_get_buffer_len();
+    rows = getmaxy(win);
+    cols = getmaxx(win);
+    content_h = rows - 1;
+    content_w = cols;
+    status = uart_read_status();
+
+    werase(win);
+    wattron(win, color_attr(PAIR_TITLE, A_BOLD));
+    mvwprintw(win, 0, 0,
+              " UART TERMINAL | F1/Esc: debugger | RX: %u | STATUS: %02X ",
+              (unsigned int)uart_get_rx_count(), status);
+    wattroff(win, color_attr(PAIR_TITLE, A_BOLD));
+
+    if (content_h <= 0 || content_w <= 0) {
+        wnoutrefresh(win);
+        doupdate();
+        return;
+    }
+
+    if (len > (size_t)(content_h * content_w)) {
+        start = len - (size_t)(content_h * content_w);
+    }
+
+    for (size_t i = start; i < len; i++) {
+        char ch = buffer[i];
+
+        if (ch == '\n') {
+            y++;
+            x = 0;
+        } else {
+            mvwaddch(win, y, x, ch);
+            x++;
+            if (x >= content_w) {
+                y++;
+                x = 0;
+            }
+        }
+
+        if (y >= rows) break;
+    }
+
+    wnoutrefresh(win);
+    doupdate();
+}
+
 static void display_footer_window(void) {
     WINDOW* win = layout.footer;
 
@@ -667,7 +860,8 @@ static void display_footer_window(void) {
     draw_box(win, "Controls", 0);
     mvwprintw(win, 1, 2,
               "Enter step | Space run/pause | n step 10 | Tab/Shift+Tab pane | "
-              "Up/Down/Pg/Home/End scroll | c clear terminal | r reset | q quit");
+              "Up/Down/Pg/Home/End scroll | F2 UART terminal | "
+              "c clear terminal | r reset | q quit");
     wnoutrefresh(win);
 }
 
@@ -688,6 +882,7 @@ void interface_display_cpu(void) {
     display_fetch_window();
     display_vectors_window();
     display_trace_window();
+    display_performance_window();
 }
 
 void interface_display_mem(void) {
@@ -749,4 +944,12 @@ void interface_mem_view_home(void) {
 
 void interface_mem_view_end(void) {
     ui_state.scroll[ui_state.active_view] = max_scroll_for_view(ui_state.active_view);
+}
+
+enum ui_mode interface_get_mode(void) {
+    return ui_state.mode;
+}
+
+void interface_set_mode(enum ui_mode mode) {
+    ui_state.mode = mode;
 }

@@ -18,7 +18,7 @@ struct central_processing_unit {
      * bit 2: Interrupt
      * bit 3: Decimal
      * bit 4: Break
-     * bit 5: 0
+     * bit 5: unused, reads/pushes as 1
      * bit 6: Overflow (V)
      * bit 7: Negative
      * */
@@ -51,6 +51,11 @@ struct cpu_memory_trace {
 
 extern struct cpu_memory_trace cpu_trace;
 
+struct cpu_execution_stats {
+    uint64_t total_instructions_executed;
+    uint64_t total_cycles_executed;
+};
+
 void cpu_reset(void);
 uint8_t cpu_extract_sr(uint8_t flag);
 uint8_t cpu_mod_sr(uint8_t flag, uint8_t val);
@@ -58,5 +63,13 @@ uint8_t cpu_fetch(uint16_t addr);
 uint8_t cpu_write(uint16_t addr, uint8_t data);
 void cpu_exec(void);
 void cpu_init(void);
+void cpu_request_irq(void);
+void cpu_request_nmi(void);
+uint8_t cpu_status_for_push(uint8_t break_flag);
+void cpu_restore_status(uint8_t status);
+void cpu_push_u8(uint8_t value);
+uint8_t cpu_pull_u8(void);
+void cpu_service_brk(void);
+struct cpu_execution_stats cpu_get_execution_stats(void);
 
 #endif

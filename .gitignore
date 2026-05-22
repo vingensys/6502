@@ -1,6 +1,8 @@
 # CUSTOM
 dump.bin
 .idea
+/*.bin
+!/example.bin
 
 # Prerequisites
 *.d
