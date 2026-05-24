@@ -5,7 +5,9 @@
 #include "cpu/cpu.h"
 #include "mem/mem.h"
 
-#define TEST_BIN "/tmp/6502_cpu_batch4_test.bin"
+#ifndef TEST_BIN
+#define TEST_BIN "build/tests/6502_cpu_batch4_test.bin"
+#endif
 #define FLAG_MASK ((uint8_t)((1 << C) | (1 << Z) | (1 << I) | (1 << D) | \
                              (1 << B) | (1 << V) | (1 << N)))
 

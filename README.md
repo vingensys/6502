@@ -28,6 +28,42 @@ Or you can run the _shortcut_ script
 bash run.sh
 ```
 
+### Developer workflow with Termux
+
+This repo is often edited from a PC through SSHFS, but Android/Termux builds
+must run inside Termux. If you run `make` on the PC, it may produce an x86_64
+binary instead of the Android/Termux binary you intend to test.
+
+Inside Termux:
+
+```sh
+cd ~/6502
+make verify
+make run-os
+```
+
+From a PC, pass the phone's current DHCP IP address explicitly:
+
+```sh
+make remote-status TERMUX_HOST=<phone-ip> TERMUX_USER=<termux-user>
+make remote-verify TERMUX_HOST=<phone-ip> TERMUX_USER=<termux-user>
+make remote-run-os TERMUX_HOST=<phone-ip> TERMUX_USER=<termux-user>
+```
+
+You can also use an SSH config alias if you prefer:
+
+```sshconfig
+Host termux-phone
+    HostName <current-phone-ip>
+    Port 8022
+    User <termux-user>
+```
+
+The phone IP is DHCP-assigned and may change, and the Termux username is
+device/install specific. Do not hard-code either value in the Makefile; pass
+them with `TERMUX_HOST=<phone-ip> TERMUX_USER=<termux-user>` or update your
+local SSH config alias.
+
 ### Boot configuration
 
 By default, the emulator preserves the original simple behavior: it loads

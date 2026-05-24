@@ -1,6 +1,7 @@
 # CUSTOM
 dump.bin
 .idea
+/build/
 /*.bin
 !/example.bin
 

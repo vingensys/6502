@@ -6,7 +6,9 @@
 #include "mem/mem.h"
 #include "peripherals/uart.h"
 
-#define TEST_BIN "/tmp/6502_cpu_batch3_test.bin"
+#ifndef TEST_BIN
+#define TEST_BIN "build/tests/6502_cpu_batch3_test.bin"
+#endif
 
 uint8_t DEBUG = 0;
 

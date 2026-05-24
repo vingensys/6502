@@ -1,11 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
+tmpdir="${TMPDIR:-build/tests}"
+mkdir -p "$tmpdir"
+runner="$tmpdir/6502_monitor_breakpoint_runner"
+
 programs/monitor/build_monitor.sh >/dev/null
 programs/carts/build_carts.sh >/dev/null
 
 cc -Wall -Wextra -pedantic -std=c99 -Isrc \
-  -o /tmp/6502_monitor_breakpoint_runner \
+  -o "$runner" \
   programs/tests/monitor_breakpoint_runner.c \
   src/mem/mem.c \
   src/cpu/cpu.c \
@@ -13,4 +17,4 @@ cc -Wall -Wextra -pedantic -std=c99 -Isrc \
   src/peripherals/uart.c \
   -lm
 
-/tmp/6502_monitor_breakpoint_runner
+"$runner"

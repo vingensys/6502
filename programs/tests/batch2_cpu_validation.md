@@ -2,7 +2,7 @@
 
 `cpu_batch2_runner.c` is a lightweight non-ncurses regression runner for CPU
 control-flow behavior. It compiles directly against the emulator CPU and memory
-modules, writes tiny test binaries to `/tmp`, loads them at `$8000`, executes a
+modules, writes tiny test binaries to `TMPDIR` or `build/tests`, loads them at `$8000`, executes a
 fixed number of instructions, and checks CPU registers, memory, PC, SP, stack
 bytes, and branch cycle counts.
 

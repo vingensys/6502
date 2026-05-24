@@ -5,7 +5,9 @@
 #include "cpu/cpu.h"
 #include "mem/mem.h"
 
-#define TEST_BIN "/tmp/6502_cpu_batch5_test.bin"
+#ifndef TEST_BIN
+#define TEST_BIN "build/tests/6502_cpu_batch5_test.bin"
+#endif
 #define STATUS_U 0x20
 
 uint8_t DEBUG = 0;
