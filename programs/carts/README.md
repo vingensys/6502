@@ -20,10 +20,24 @@ Generated cartridges:
 | `store_2a.bin` | Stores `$2A` at zero-page address `$0005`, then executes two NOPs. |
 | `breakpoint_test.bin` | Writes `A`, executes a NOP at `$8005`, then writes `B` and loops. |
 | `echo_upper.bin` | Interactive UART cartridge that prints a prompt and echoes lowercase letters as uppercase. |
+| `os_call_demo.bin` | Assembly cartridge that calls the fixed TMS-OS service ABI. |
+| `c-sdk/build/os_call_demo_c.bin` | C cartridge built with `programs/carts/c-sdk`; calls the fixed TMS-OS service ABI. |
 
 They can be run directly or from the monitor:
 
 ```sh
 ./bin/emulator.out --cart programs/carts/ok_once.bin
 ./bin/emulator.out --monitor --cart programs/carts/ok_once.bin
+```
+
+The C SDK demo is meant to run under TMS-OS:
+
+```sh
+./bin/emulator.out --rom programs/os/tms-os/build/tmsos.bin --cart programs/carts/c-sdk/build/os_call_demo_c.bin --ui headless
+```
+
+Then at the TMS-OS prompt:
+
+```text
+RUN 8000
 ```

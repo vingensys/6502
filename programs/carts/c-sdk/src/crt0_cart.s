@@ -1,4 +1,4 @@
-        .import _kernel_main
+        .import _main
         .importzp sp
         .export _start
 
@@ -8,11 +8,9 @@ _start:
         cld
         ldx #$ff
         txs
-        lda #<$03ff
+        lda #<$7fff
         sta sp
-        lda #>$03ff
+        lda #>$7fff
         sta sp+1
-        jsr _kernel_main
-
-halt:
-        jmp halt
+        jsr _main
+        jmp $E100

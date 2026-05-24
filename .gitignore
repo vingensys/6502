@@ -2,6 +2,7 @@
 dump.bin
 .idea
 /build/
+/programs/os/tms-os/build/*.map
 /*.bin
 !/example.bin
 

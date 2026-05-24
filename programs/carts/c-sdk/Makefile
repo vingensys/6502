@@ -3,21 +3,16 @@ CC65 := cc65
 LD65 := ld65
 
 BUILD := build
-TARGET := $(BUILD)/tmsos.bin
-MAP := $(BUILD)/tmsos.map
+TARGET := $(BUILD)/os_call_demo_c.bin
+MAP := $(BUILD)/os_call_demo_c.map
 
 ASFLAGS := --cpu 6502
 CFLAGS := --cpu 6502 --target none -I include -O
-LDFLAGS := -C linker.cfg -m $(MAP) \
-	--force-import OS_WARM_START \
-	--force-import OS_PUTC \
-	--force-import OS_GETC \
-	--force-import OS_PUTS \
-	--force-import OS_NEWLINE
+LDFLAGS := -C linker_cart.cfg -m $(MAP)
 LDLIBS := none.lib
 
-ASM_SRCS := src/crt0.s src/abi.s src/uart.s src/vectors.s
-C_SRCS := src/kernel.c src/shell.c src/memory.c src/hex.c
+ASM_SRCS := src/crt0_cart.s src/tmsos_cart.s
+C_SRCS := src/main.c
 OBJS := $(ASM_SRCS:src/%.s=$(BUILD)/%.o) $(C_SRCS:src/%.c=$(BUILD)/%.o)
 
 .PHONY: all clean check-tools
@@ -41,7 +36,7 @@ $(BUILD)/%.s: src/%.c | $(BUILD)
 $(BUILD)/%.o: $(BUILD)/%.s
 	$(CA65) $(ASFLAGS) -o $@ $<
 
-$(TARGET): $(OBJS) linker.cfg
+$(TARGET): $(OBJS) linker_cart.cfg
 	$(LD65) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 	@wc -c $@
 

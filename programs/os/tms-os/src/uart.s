@@ -3,6 +3,7 @@
         .export _os_puts
         .export _os_newline
         .export _os_warm_start
+        .export _os_run
         .import _kernel_warm_start
 
 UART_DATA   = $D010
@@ -54,3 +55,19 @@ _os_newline:
 
 _os_warm_start:
         jmp _kernel_warm_start
+
+; void __fastcall__ os_run(unsigned int addr)
+; Build an RTS frame for addr - 1 so RTS transfers to addr.
+_os_run:
+        sta ptr
+        stx ptr+1
+        lda ptr
+        bne run_dec_low
+        dec ptr+1
+run_dec_low:
+        dec ptr
+        lda ptr+1
+        pha
+        lda ptr
+        pha
+        rts
