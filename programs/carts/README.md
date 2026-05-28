@@ -22,6 +22,7 @@ Generated cartridges:
 | `echo_upper.bin` | Interactive UART cartridge that prints a prompt and echoes lowercase letters as uppercase. |
 | `os_call_demo.bin` | Assembly cartridge that calls the fixed TMS-OS service ABI. |
 | `c-sdk/build/os_call_demo_c.bin` | C cartridge built with `programs/carts/c-sdk`; calls the fixed TMS-OS service ABI. |
+| `c-sdk/build/tms_calc.bin` | Interactive C calculator cartridge using TMS-OS service calls. |
 
 They can be run directly or from the monitor:
 
@@ -40,4 +41,10 @@ Then at the TMS-OS prompt:
 
 ```text
 RUN 8000
+```
+
+The calculator cartridge is also launched from TMS-OS:
+
+```sh
+./bin/emulator.out --rom programs/os/tms-os/build/tmsos.bin --cart programs/carts/c-sdk/build/tms_calc.bin --ui headless
 ```

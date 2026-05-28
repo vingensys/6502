@@ -15,7 +15,7 @@ Install cc65 in Termux:
 pkg install cc65
 ```
 
-Build the demo cartridge:
+Build the demo cartridges:
 
 ```sh
 cd programs/carts/c-sdk
@@ -27,6 +27,8 @@ The build emits:
 ```text
 build/os_call_demo_c.bin
 build/os_call_demo_c.map
+build/tms_calc.bin
+build/tms_calc.map
 ```
 
 ## Run
@@ -51,6 +53,47 @@ TMS-OS 0.1
 READY
 >
 ```
+
+## TMS-CALC
+
+`build/tms_calc.bin` is an interactive C cartridge calculator.
+
+Run it from the repo root:
+
+```sh
+./bin/emulator.out --rom programs/os/tms-os/build/tmsos.bin --cart programs/carts/c-sdk/build/tms_calc.bin --ui headless
+```
+
+At the TMS-OS prompt:
+
+```text
+RUN 8000
+```
+
+It prints:
+
+```text
+TMS-CALC 0.1
+ENTER A+B, A-B, A*B, A/B
+Q TO QUIT
+CALC>
+```
+
+Supported syntax is one positive integer, one operator, and one positive
+integer:
+
+```text
+12+34
+100-37
+7*8
+144/12
+```
+
+Supported operators are `+`, `-`, `*`, and `/`. Results are printed as
+unsigned decimal integers. Division by zero prints `DIV ZERO`. Invalid input
+prints `ERR`. Subtraction where the right side is larger than the left side
+prints `ERR`; negative result formatting is intentionally not implemented.
+Type `Q` or `q` to return to the TMS-OS prompt.
 
 ## C API
 

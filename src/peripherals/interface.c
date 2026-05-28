@@ -30,6 +30,7 @@ enum memory_view {
     MEM_VIEW_ZERO_PAGE,
     MEM_VIEW_STACK,
     MEM_VIEW_PROGRAM,
+    MEM_VIEW_KERNEL_ROM,
     MEM_VIEW_COUNT
 };
 
@@ -162,7 +163,7 @@ static int memory_height(int rows) {
 }
 
 static int pane_width(int cols) {
-    return (cols - (PANE_GAP * 2)) / MEM_VIEW_COUNT;
+    return (cols - (PANE_GAP * (MEM_VIEW_COUNT - 1))) / MEM_VIEW_COUNT;
 }
 
 static int pane_left(enum memory_view view, int cols) {
@@ -198,11 +199,18 @@ static void get_region(enum memory_view view, struct memory_region* region) {
             break;
 
         case MEM_VIEW_PROGRAM:
-        default:
             region->title = "Program Data";
             region->base_addr = PROGRAM_BASE;
             region->size = PROGRAM_SIZE;
             region->data = mem_region_ptr(PROGRAM_BASE);
+            break;
+
+        case MEM_VIEW_KERNEL_ROM:
+        default:
+            region->title = "Kernel ROM";
+            region->base_addr = MEM_KERNEL_ROM_START;
+            region->size = MEM_KERNEL_ROM_END - MEM_KERNEL_ROM_START + 1;
+            region->data = mem_region_ptr(MEM_KERNEL_ROM_START);
             break;
     }
 }
@@ -322,6 +330,7 @@ static int create_layout(void) {
            layout.memory[MEM_VIEW_ZERO_PAGE] != NULL &&
            layout.memory[MEM_VIEW_STACK] != NULL &&
            layout.memory[MEM_VIEW_PROGRAM] != NULL &&
+           layout.memory[MEM_VIEW_KERNEL_ROM] != NULL &&
            layout.terminal != NULL && layout.uart_terminal != NULL &&
            layout.footer != NULL;
 }
@@ -650,10 +659,12 @@ static int attr_for_address(enum memory_view view, uint16_t addr) {
     if (cpu_trace.has_data_read && addr == cpu_trace.last_data_read_addr) {
         return color_attr(PAIR_READ, A_BOLD);
     }
-    if (view == MEM_VIEW_PROGRAM && addr == cpu.pc) {
+    if ((view == MEM_VIEW_PROGRAM || view == MEM_VIEW_KERNEL_ROM) &&
+        addr == cpu.pc) {
         return color_attr(PAIR_PC, A_BOLD);
     }
-    if (view == MEM_VIEW_PROGRAM && cpu_trace.has_instruction_fetch &&
+    if ((view == MEM_VIEW_PROGRAM || view == MEM_VIEW_KERNEL_ROM) &&
+        cpu_trace.has_instruction_fetch &&
         addr == cpu_trace.last_instruction_fetch_addr) {
         return color_attr(PAIR_PC, A_REVERSE);
     }

@@ -127,6 +127,9 @@ The `programs/carts/os_call_demo.bin` cartridge demonstrates the fixed TMS-OS
 service ABI by printing through OS routines and returning to the OS prompt.
 The `programs/carts/c-sdk/` project provides a minimal cc65 C cartridge SDK
 that builds `build/os_call_demo_c.bin` against the same ABI.
+It also builds `build/tms_calc.bin`, an interactive integer calculator
+cartridge that exercises line input, parsing, arithmetic, decimal output, and
+return-to-OS behavior through the service ABI.
 
 The existing monitor shortcut remains unchanged:
 
@@ -221,6 +224,15 @@ The cartridge linker config keeps the C runtime inside user-owned memory:
 `build/os_call_demo_c.map` should show `ZEROPAGE` starting at `$0082`,
 `DATA/BSS` in `$0400-$7FFF`, and `STARTUP/CODE/RODATA` starting at `$8000`.
 
+The `examples/calc/` program is intentionally small:
+
+- positive 16-bit integer inputs only
+- one operator per line: `+`, `-`, `*`, or `/`
+- no precedence, parentheses, floating point, `malloc`, or `printf`
+- divide-by-zero reports `DIV ZERO`
+- subtraction that would go negative reports `ERR`
+
+
 ## File Responsibilities
 
 | File | Responsibility |
@@ -246,7 +258,8 @@ The cartridge linker config keeps the C runtime inside user-owned memory:
 6. Done: add `PEEK`, `POKE`, `MEM`, and `RUN`.
 7. Done: define fixed `$E100` service ABI and add `os_call_demo` cartridge.
 8. Done: add minimal cc65 C cartridge SDK and C ABI demo cartridge.
-9. Next: add automated TMS-OS smoke tests using `--ui headless`.
+9. Done: add interactive TMS-CALC C cartridge demo.
+10. Next: add automated TMS-OS smoke tests using `--ui headless`.
 
 ## Non-Goals for v0.1
 
